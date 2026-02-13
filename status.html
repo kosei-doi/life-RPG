@@ -1,0 +1,1516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Life RPG — Status Viewer</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700&family=Rajdhani:wght@400;500;600;700&display=swap');
+
+    :root {
+      --bg: #0a0a0f;
+      --bg-card: #111118;
+      --bg-elevated: #16161f;
+      --neon-cyan: #00f5ff;
+      --neon-magenta: #ff00aa;
+      --neon-yellow: #ffed00;
+      --neon-green: #39ff14;
+      --text: #e0e0e8;
+      --text-muted: #8a8a9a;
+      --border: rgba(0, 245, 255, 0.2);
+      --glow-cyan: 0 0 20px rgba(0, 245, 255, 0.4);
+      --glow-magenta: 0 0 20px rgba(255, 0, 170, 0.4);
+      --glow-yellow: 0 0 20px rgba(255, 237, 0, 0.3);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Rajdhani', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Scanlines overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 0, 0, 0.03) 2px,
+        rgba(0, 0, 0, 0.03) 4px
+      );
+      pointer-events: none;
+      z-index: 1000;
+    }
+
+    .app-header {
+      text-align: center;
+      padding: 1.5rem;
+      border-bottom: 1px solid var(--border);
+      position: relative;
+    }
+
+    .app-header::after {
+      content: '';
+      position: absolute;
+      bottom: -1px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 200px;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--neon-cyan), var(--neon-magenta), transparent);
+      box-shadow: var(--glow-cyan);
+    }
+
+    .app-title {
+      font-family: 'Orbitron', monospace;
+      font-size: 1.8rem;
+      font-weight: 700;
+      background: linear-gradient(90deg, var(--neon-cyan), var(--neon-magenta));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: 4px;
+    }
+
+    .period-nav {
+      margin-top: 1rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .period-nav-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .nav-arrow {
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .nav-arrow:hover {
+      color: var(--neon-cyan);
+      border-color: var(--neon-cyan);
+      box-shadow: var(--glow-cyan);
+    }
+
+    .period-label {
+      font-family: 'Orbitron', monospace;
+      font-size: 0.9rem;
+      color: var(--neon-cyan);
+      min-width: 180px;
+      text-align: center;
+      letter-spacing: 1px;
+    }
+
+    .nav-jump {
+      font-family: 'Orbitron', monospace;
+      font-size: 0.8rem;
+      padding: 0.4rem 0.9rem;
+      background: rgba(57, 255, 20, 0.1);
+      border: 1px solid var(--neon-green);
+      color: var(--neon-green);
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .nav-jump:hover {
+      background: rgba(57, 255, 20, 0.2);
+      box-shadow: 0 0 12px rgba(57, 255, 20, 0.3);
+    }
+
+    .period-tabs {
+      display: flex;
+      justify-content: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .period-tab {
+      font-family: 'Orbitron', monospace;
+      font-size: 0.85rem;
+      padding: 0.5rem 1.25rem;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .period-tab:hover {
+      color: var(--neon-cyan);
+      border-color: rgba(0, 245, 255, 0.5);
+    }
+
+    .period-tab.active {
+      background: rgba(0, 245, 255, 0.15);
+      color: var(--neon-cyan);
+      border-color: var(--neon-cyan);
+      box-shadow: var(--glow-cyan);
+    }
+
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr minmax(320px, 500px) 1fr;
+      gap: 1.5rem;
+      padding: 1.5rem;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    @media (max-width: 900px) {
+      .main-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .panel::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--neon-cyan), var(--neon-magenta));
+      opacity: 0.6;
+    }
+
+    .panel-title {
+      font-family: 'Orbitron', monospace;
+      font-size: 0.85rem;
+      color: var(--neon-cyan);
+      margin-bottom: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+    }
+
+    /* Character Card */
+    .character-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .class-badge {
+      font-family: 'Orbitron', monospace;
+      font-size: 1.5rem;
+      font-weight: 700;
+      padding: 0.5rem 1.25rem;
+      border: 2px solid var(--neon-yellow);
+      border-radius: 4px;
+      color: var(--neon-yellow);
+      text-shadow: 0 0 10px rgba(255, 237, 0, 0.5);
+      box-shadow: var(--glow-yellow);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.85; }
+    }
+
+    .level-display {
+      font-size: 2.5rem;
+      font-weight: 700;
+      color: var(--neon-magenta);
+      text-shadow: 0 0 15px rgba(255, 0, 170, 0.5);
+    }
+
+    .xp-total {
+      text-align: center;
+      margin-bottom: 0.5rem;
+    }
+
+    .xp-period {
+      margin-top: 1rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .xp-period-value {
+      font-family: 'Orbitron', monospace;
+      font-size: 1rem;
+      color: var(--neon-green);
+      font-weight: 600;
+    }
+
+    .period-badge {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    .level-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    .stat-breakdown {
+      width: 100%;
+      margin-top: 0.5rem;
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.35rem 0;
+      font-size: 0.9rem;
+    }
+
+    .stat-row span:first-child {
+      color: var(--text-muted);
+    }
+
+    /* XP Progress Bar */
+    .xp-section {
+      grid-column: 2;
+    }
+
+    .xp-label {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 0.5rem;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    .xp-bar-container {
+      height: 24px;
+      background: var(--bg-elevated);
+      border-radius: 4px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+
+    .xp-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--neon-cyan), var(--neon-magenta));
+      border-radius: 3px;
+      transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 0 15px rgba(0, 245, 255, 0.5);
+      position: relative;
+    }
+
+    .xp-bar-fill::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.2) 50%,
+        transparent 100%
+      );
+      animation: shimmer 2s infinite;
+    }
+
+    @keyframes shimmer {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+
+    /* Radar Chart Container */
+    .radar-section {
+      grid-column: 1 / -1;
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 1.5rem;
+    }
+
+    .radar-wrapper {
+      position: relative;
+      height: 360px;
+      min-height: 360px;
+    }
+
+    .radar-wrapper canvas {
+      max-height: 360px !important;
+    }
+
+    .chart-no-data {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(17, 17, 24, 0.85);
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      border-radius: 8px;
+      z-index: 2;
+    }
+
+    /* Trend Chart */
+    .trend-section {
+      grid-column: 1 / -1;
+      max-width: 720px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    .trend-wrapper {
+      position: relative;
+      height: 280px;
+      min-height: 280px;
+    }
+
+    @media (max-width: 600px) {
+      .trend-wrapper {
+        height: 220px;
+      }
+    }
+
+    .trend-wrapper canvas {
+      max-height: 280px !important;
+    }
+
+    /* Recent Quests */
+    .quest-list {
+      list-style: none;
+    }
+
+    .quest-item {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.6rem 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: 0.95rem;
+      animation: fadeIn 0.4s ease-out;
+    }
+
+    .quest-item:last-child {
+      border-bottom: none;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateX(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+
+    .quest-color {
+      width: 6px;
+      height: 24px;
+      border-radius: 2px;
+      flex-shrink: 0;
+      box-shadow: 0 0 8px currentColor;
+    }
+
+    .quest-title {
+      flex: 1;
+      font-weight: 500;
+    }
+
+    .quest-stats {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .empty-state {
+      color: var(--text-muted);
+      font-style: italic;
+      padding: 1rem 0;
+      text-align: center;
+    }
+
+    /* Loading state */
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 200px;
+      color: var(--neon-cyan);
+    }
+
+    .loading i {
+      font-size: 2rem;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Error state */
+    .error-message {
+      color: #ff6b6b;
+      padding: 1rem;
+      text-align: center;
+      border: 1px solid rgba(255, 107, 107, 0.3);
+      border-radius: 4px;
+      margin: 1rem;
+    }
+
+    /* Quest History — クエスト履歴 */
+    .quest-history-section {
+      grid-column: 1 / -1;
+    }
+
+    .quest-history-scroll {
+      max-height: 420px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-right: 0.5rem;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .quest-history-scroll::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .quest-history-scroll::-webkit-scrollbar-track {
+      background: var(--bg-elevated);
+      border-radius: 3px;
+    }
+
+    .quest-history-scroll::-webkit-scrollbar-thumb {
+      background: rgba(0, 245, 255, 0.4);
+      border-radius: 3px;
+    }
+
+    .quest-history-scroll::-webkit-scrollbar-thumb:hover {
+      background: rgba(0, 245, 255, 0.6);
+    }
+
+    .quest-history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .quest-history-card {
+      background: rgba(22, 22, 31, 0.8);
+      border: 1px solid rgba(0, 245, 255, 0.15);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      grid-template-rows: auto auto auto;
+      gap: 0.5rem 1rem;
+      animation: fadeIn 0.3s ease-out;
+    }
+
+    .quest-history-card:hover {
+      border-color: rgba(0, 245, 255, 0.3);
+      box-shadow: 0 0 12px rgba(0, 245, 255, 0.1);
+    }
+
+    @media (max-width: 600px) {
+      .quest-history-card {
+        grid-template-columns: 1fr;
+        padding: 0.9rem 1rem;
+      }
+    }
+
+    .quest-history-header {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .quest-history-icon {
+      width: 36px;
+      height: 36px;
+      min-width: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      box-shadow: 0 0 12px currentColor;
+      flex-shrink: 0;
+    }
+
+    .quest-history-date {
+      font-family: 'Orbitron', monospace;
+      font-size: 0.75rem;
+      color: var(--neon-cyan);
+      letter-spacing: 1px;
+    }
+
+    .quest-history-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text);
+      flex: 1;
+    }
+
+    .quest-history-stats {
+      grid-column: 1 / -1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1rem;
+      font-size: 0.85rem;
+    }
+
+    .quest-history-stat {
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-weight: 500;
+    }
+
+    .quest-history-stat-int { color: var(--neon-cyan); background: rgba(0, 245, 255, 0.1); }
+    .quest-history-stat-vit { color: #ef4444; background: rgba(239, 68, 68, 0.15); }
+    .quest-history-stat-chr { color: var(--neon-green); background: rgba(57, 255, 20, 0.1); }
+    .quest-history-stat-spi { color: var(--neon-yellow); background: rgba(255, 237, 0, 0.1); }
+
+    .quest-history-reason {
+      grid-column: 1 / -1;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+      padding-top: 0.35rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .quest-history-reason i {
+      margin-right: 0.35rem;
+      color: var(--neon-magenta);
+      opacity: 0.8;
+    }
+
+    .quest-history-score {
+      font-family: 'Orbitron', monospace;
+      font-size: 0.8rem;
+      color: var(--neon-green);
+      font-weight: 600;
+    }
+
+    .source-badge {
+      font-family: 'Orbitron', monospace;
+      font-size: 0.65rem;
+      padding: 0.2rem 0.45rem;
+      border-radius: 4px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      flex-shrink: 0;
+    }
+
+    .source-badge-work { background: rgba(249, 115, 22, 0.3); color: #f97316; }
+    .source-badge-meal { background: rgba(34, 197, 94, 0.3); color: #22c55e; }
+    .source-badge-study { background: rgba(59, 130, 246, 0.3); color: #3b82f6; }
+    .source-badge-event { background: rgba(168, 85, 247, 0.3); color: #a855f7; }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <h1 class="app-title">STATUS — LIFERPG</h1>
+    <nav class="period-nav">
+      <div class="period-nav-row">
+        <button class="nav-arrow" id="navPrev" title="Previous period"><i class="fas fa-chevron-left"></i></button>
+        <span class="period-label" id="navPeriodLabel">—</span>
+        <button class="nav-arrow" id="navNext" title="Next period"><i class="fas fa-chevron-right"></i></button>
+      </div>
+      <div class="period-nav-row">
+        <button class="nav-jump" id="navToday">Today</button>
+        <div class="period-tabs" id="periodTabs">
+          <button class="period-tab active" data-period="day">Day</button>
+          <button class="period-tab" data-period="week">Week</button>
+          <button class="period-tab" data-period="month">Month</button>
+        </div>
+      </div>
+    </nav>
+  </header>
+
+  <main class="main-grid">
+    <aside class="panel">
+      <h2 class="panel-title"><i class="fas fa-user-shield"></i> Character</h2>
+      <div class="character-card" id="characterCard">
+        <div class="loading"><i class="fas fa-spinner"></i></div>
+      </div>
+    </aside>
+
+    <section class="panel xp-section">
+      <h2 class="panel-title"><i class="fas fa-bolt"></i> Experience</h2>
+      <div id="xpSection">
+        <div class="xp-total">
+          <span class="level-label">Total Level</span>
+          <span class="level-display" id="levelNum">0</span>
+        </div>
+        <div class="xp-label">
+          <span>Progress</span>
+          <span id="xpText">0 / 100 XP</span>
+        </div>
+        <div class="xp-bar-container">
+          <div class="xp-bar-fill" id="xpBar" style="width: 0%"></div>
+        </div>
+        <p class="level-label" style="margin-top: 0.5rem;">Next level at 100 XP</p>
+        <div class="xp-period">
+          <span class="level-label">Gained this <span id="periodLabel">Day</span></span>
+          <span class="xp-period-value" id="periodXP">+0 XP</span>
+        </div>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <h2 class="panel-title"><i class="fas fa-scroll"></i> Recent Quests</h2>
+      <ul class="quest-list" id="questList">
+        <li class="loading"><i class="fas fa-spinner"></i></li>
+      </ul>
+    </aside>
+
+    <section class="panel radar-section">
+      <h2 class="panel-title"><i class="fas fa-chart-radar"></i> Stats Overview <span class="period-badge" id="radarPeriodBadge">(Day)</span></h2>
+      <div class="radar-wrapper">
+        <canvas id="radarChart"></canvas>
+        <div class="chart-no-data" id="radarNoData" style="display: none;">No data for this period</div>
+      </div>
+    </section>
+
+    <section class="panel trend-section">
+      <h2 class="panel-title"><i class="fas fa-chart-line"></i> XP Trend <span class="period-badge" id="trendPeriodBadge">(Day)</span></h2>
+      <div class="trend-wrapper">
+        <canvas id="trendChart"></canvas>
+        <div class="chart-no-data" id="trendNoData" style="display: none;">No data for this period</div>
+      </div>
+    </section>
+
+    <section class="panel quest-history-section">
+      <h2 class="panel-title"><i class="fas fa-history"></i> クエスト履歴 — Quest History</h2>
+      <div class="quest-history-scroll" id="questHistoryScroll">
+        <div class="quest-history-list" id="questHistoryList">
+          <div class="loading"><i class="fas fa-spinner"></i></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    console.log('[LifeRPG] Script starting');
+    try {
+    // ——— Firebase Config ———
+    const firebaseConfig = {
+      apiKey: "AIzaSyDhYTiWflm90SZTySJMDlBpGu7WHzkUaL4",
+      authDomain: "manager-8ac68.firebaseapp.com",
+      databaseURL: "https://manager-8ac68-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "manager-8ac68",
+      storageBucket: "manager-8ac68.firebasestorage.app",
+      messagingSenderId: "978586727124",
+      appId: "1:978586727124:web:34e5fe89cc51f35b37c141",
+      measurementId: "G-XPC0DXSBNZ"
+    };
+
+    // Initialize Firebase
+    console.log('[LifeRPG] Firebase init...');
+    if (typeof firebase === 'undefined') throw new Error('Firebase not loaded');
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    console.log('[LifeRPG] Firebase ready');
+
+    // ——— Class Mapping (highest stat) ———
+    const STAT_TO_CLASS = {
+      int: 'Sage',
+      vit: 'Knight',
+      chr: 'Bard',
+      spi: 'Cleric'
+    };
+
+    const STAT_LABELS = {
+      int: 'Intelligence',
+      vit: 'Vitality',
+      chr: 'Charisma',
+      spi: 'Spirit'
+    };
+
+    const STAT_COLORS = {
+      int: 'rgba(0, 245, 255, 0.9)',
+      vit: 'rgba(239, 68, 68, 0.9)',
+      chr: 'rgba(57, 255, 20, 0.9)',
+      spi: 'rgba(255, 237, 0, 0.9)'
+    };
+
+    // ——— State ———
+    let radarChart = null;
+    let trendChart = null;
+    let aggregatedStats = { int: 0, vit: 0, chr: 0, spi: 0 };
+    let totalXP = 0;
+    let recentEvents = [];
+    let allEvents = [];
+    let currentPeriod = 'day';
+    let currentViewDate = new Date();
+    let filteredEvents = [];
+    let periodStats = { int: 0, vit: 0, chr: 0, spi: 0 };
+    let periodXP = 0;
+    const RADAR_MAX_FIXED = 50;
+    const DEBUG_PATHS = '/events, /shifts, /tabler/tasks, /admin/pointsHistory';
+
+    // ——— Source config ———
+    const SOURCE_CONFIG = {
+      work: { label: 'WORK', color: '#f97316', badgeClass: 'source-badge-work' },
+      meal: { label: 'MEAL', color: '#22c55e', badgeClass: 'source-badge-meal' },
+      study: { label: 'STUDY', color: '#3b82f6', badgeClass: 'source-badge-study' },
+      event: { label: 'EVENT', color: '#a855f7', badgeClass: 'source-badge-event' }
+    };
+
+    function parseTimestamp(val) {
+      if (val == null) return null;
+      if (typeof val === 'object' && val.seconds != null) return val.seconds * 1000;
+      if (typeof val === 'number') return val < 1e12 ? val * 1000 : val;
+      if (typeof val === 'string') return new Date(val).getTime();
+      return null;
+    }
+
+    function toDateMs(val) {
+      const ms = parseTimestamp(val);
+      return ms != null ? ms : 0;
+    }
+
+    function calculateStatsFromColor(hex) {
+      const c = (hex || '').toLowerCase();
+      if (c.includes('00f5ff') || c.includes('3b82f6') || c.includes('blue')) return { int: 5, vit: 0, chr: 0, spi: 0 };
+      if (c.includes('39ff14') || c.includes('22c55e') || c.includes('green')) return { int: 0, vit: 0, chr: 5, spi: 0 };
+      if (c.includes('ffed00') || c.includes('yellow')) return { int: 0, vit: 0, chr: 0, spi: 5 };
+      if (c.includes('ef4444') || c.includes('red')) return { int: 0, vit: 5, chr: 0, spi: 0 };
+      return { int: 0, vit: 0, chr: 0, spi: 0 };
+    }
+
+    function normalizeEvent(ev, key) {
+      const stats = ev.stats || {};
+      const s = ev.stats
+        ? { int: stats.int ?? 0, vit: stats.vit ?? 0, chr: stats.chr ?? 0, spi: stats.spi ?? 0, reason: (stats.reason && String(stats.reason).trim()) || null }
+        : calculateStatsFromColor(ev.color);
+      const dateMs = toDateMs(ev?.startTime ?? ev?.timestamp ?? ev?.date ?? ev?.createdAt);
+      const xp = s.int + s.vit + s.chr + s.spi;
+      return {
+        key: `event:${key}`,
+        source: 'event',
+        title: ev.title || 'Untitled',
+        color: ev.color || SOURCE_CONFIG.event.color,
+        stats: s,
+        dateMs,
+        xp
+      };
+    }
+
+    function normalizeShift(item, key) {
+      const dateMs = toDateMs(item?.startTime ?? item?.start);
+      const role = (item.role || item.workplaceId || '').toString();
+      const isKfc = role.includes('ケンタッキー') || role.includes('KFC');
+      const s = isKfc ? { int: 0, vit: 15, chr: 10, spi: 5, reason: null } : { int: 0, vit: 10, chr: 10, spi: 5, reason: null };
+      const xp = s.int + s.vit + s.chr + s.spi;
+      const workplace = item.workplaceId || item.role || 'Work';
+      return {
+        key: `shift:${key}`,
+        source: 'work',
+        title: `Shift at ${workplace}`,
+        color: SOURCE_CONFIG.work.color,
+        stats: s,
+        dateMs,
+        xp
+      };
+    }
+
+    function normalizeMeal(item, key) {
+      const dateMs = toDateMs(item?.date);
+      const s = { int: 0, vit: 10, chr: 0, spi: 0, reason: null };
+      const xp = 10;
+      return {
+        key: `meal:${key}`,
+        source: 'meal',
+        title: item.menu || item.description || 'Meal log',
+        color: SOURCE_CONFIG.meal.color,
+        stats: s,
+        dateMs,
+        xp
+      };
+    }
+
+    function normalizeStudy(item, key) {
+      const dateMs = toDateMs(item?.completedAt ?? item?.timestamp ?? item?.date ?? item?.createdAt);
+      const taskType = (item.taskType || '').toString();
+      const isAssignment = taskType.includes('Assignment') || taskType.includes('Report');
+      const s = isAssignment ? { int: 20, vit: 0, chr: 0, spi: 5, reason: null } : { int: 10, vit: 0, chr: 0, spi: 5, reason: null };
+      const xp = s.int + s.spi;
+      return {
+        key: `study:${key}`,
+        source: 'study',
+        title: item.subject || item.title || 'Study task',
+        color: SOURCE_CONFIG.study.color,
+        stats: s,
+        dateMs,
+        xp
+      };
+    }
+
+    // ——— Fixed Period Range (based on currentViewDate) ———
+    function getDayRange() {
+      const d = new Date(currentViewDate.getFullYear(), currentViewDate.getMonth(), currentViewDate.getDate());
+      const start = d.getTime();
+      const end = d.getTime() + 24 * 60 * 60 * 1000 - 1;
+      return { start, end };
+    }
+
+    function getWeekRange() {
+      const d = new Date(currentViewDate);
+      const day = d.getDay();
+      const diff = d.getDate() - day;
+      const sun = new Date(d.getFullYear(), d.getMonth(), diff, 0, 0, 0, 0);
+      const sat = new Date(sun);
+      sat.setDate(sat.getDate() + 6);
+      sat.setHours(23, 59, 59, 999);
+      return { start: sun.getTime(), end: sat.getTime() };
+    }
+
+    function getMonthRange() {
+      const y = currentViewDate.getFullYear();
+      const m = currentViewDate.getMonth();
+      const start = new Date(y, m, 1, 0, 0, 0, 0).getTime();
+      const end = new Date(y, m + 1, 0, 23, 59, 59, 999).getTime();
+      return { start, end };
+    }
+
+    function getPeriodRange() {
+      switch (currentPeriod) {
+        case 'day': return getDayRange();
+        case 'week': return getWeekRange();
+        case 'month': return getMonthRange();
+        default: return getDayRange();
+      }
+    }
+
+    function getPeriodLabelText() {
+      const { start, end } = getPeriodRange();
+      const s = new Date(start);
+      const e = new Date(end);
+      const y = s.getFullYear();
+      const pad = n => String(n).padStart(2, '0');
+      if (currentPeriod === 'day') {
+        return `${y}/${pad(s.getMonth() + 1)}/${pad(s.getDate())}`;
+      }
+      if (currentPeriod === 'week') {
+        return `${y}/${pad(s.getMonth() + 1)}/${pad(s.getDate())} - ${pad(e.getMonth() + 1)}/${pad(e.getDate())}`;
+      }
+      return `${y} ${e.toLocaleDateString('en-US', { month: 'long' })}`;
+    }
+
+    function navigatePrev() {
+      const d = new Date(currentViewDate);
+      if (currentPeriod === 'day') d.setDate(d.getDate() - 1);
+      else if (currentPeriod === 'week') d.setDate(d.getDate() - 7);
+      else d.setMonth(d.getMonth() - 1);
+      currentViewDate = d;
+    }
+
+    function navigateNext() {
+      const d = new Date(currentViewDate);
+      if (currentPeriod === 'day') d.setDate(d.getDate() + 1);
+      else if (currentPeriod === 'week') d.setDate(d.getDate() + 7);
+      else d.setMonth(d.getMonth() + 1);
+      currentViewDate = d;
+    }
+
+    function jumpToCurrent() {
+      currentViewDate = new Date();
+    }
+
+    function applyPeriodFilter() {
+      const { start, end } = getPeriodRange();
+      const startDate = new Date(start).toISOString();
+      const endDate = new Date(end).toISOString();
+      console.log('[Filter] Period:', currentPeriod, '| startDate:', startDate, '| endDate:', endDate);
+
+      filteredEvents = allEvents.filter(ev => ev.dateMs >= start && ev.dateMs <= end);
+      periodStats = { int: 0, vit: 0, chr: 0, spi: 0 };
+      periodXP = 0;
+      filteredEvents.forEach(ev => {
+        periodStats.int += ev.stats.int;
+        periodStats.vit += ev.stats.vit;
+        periodStats.chr += ev.stats.chr;
+        periodStats.spi += ev.stats.spi;
+        periodXP += ev.xp;
+      });
+
+      console.log('[Filter] filteredEvents count:', filteredEvents.length);
+    }
+
+    // ——— Multi-Path Fetch (with debug logging & per-source try-catch) ———
+    async function fetchPath(path) {
+      try {
+        const snapshot = await db.ref(path).once('value');
+        const val = snapshot.val();
+        const count = val && typeof val === 'object' ? Object.keys(val).length : 0;
+        console.log(`Fetch Successful: ${path} (${count} items)`);
+        return { path, data: val, error: null };
+      } catch (err) {
+        console.error(`[Fetch] ${path} failed:`, err);
+        return { path, data: null, error: err.message };
+      }
+    }
+
+    async function fetchAllSources() {
+      const paths = ['/events', '/shifts', '/tabler/tasks', '/admin/pointsHistory'];
+      console.log('[Fetch] Starting fetch for paths:', paths);
+      const results = await Promise.all(paths.map(p => fetchPath(p)));
+      const data = {};
+      results.forEach(({ path, data: val, error }) => {
+        data[path] = val;
+        if (error) console.warn(`[Fetch] ${path} error, using null:`, error);
+      });
+      return data;
+    }
+
+    function collectActivities(data) {
+      const activities = [];
+      const sourceCounts = { events: 0, shifts: 0, meals: 0, tasks: 0 };
+
+      try {
+        const events = data['/events'] || {};
+        for (const key in events) {
+          if (events[key]) {
+            activities.push(normalizeEvent(events[key], key));
+            sourceCounts.events++;
+          }
+        }
+      } catch (err) {
+        console.error('[Collect] /events failed:', err);
+      }
+
+      try {
+        const shifts = data['/shifts'] || {};
+        for (const key in shifts) {
+          if (shifts[key]) {
+            activities.push(normalizeShift(shifts[key], key));
+            sourceCounts.shifts++;
+          }
+        }
+      } catch (err) {
+        console.error('[Collect] /shifts failed:', err);
+      }
+
+      try {
+        const pointsHistory = data['/admin/pointsHistory'] || {};
+        for (const key in pointsHistory) {
+          if (!key.startsWith('diet_mgr')) continue;
+          const item = pointsHistory[key];
+          if (item && (item.app === 'diet_mgr' || key.startsWith('diet_mgr'))) {
+            activities.push(normalizeMeal(item, key));
+            sourceCounts.meals++;
+          }
+        }
+      } catch (err) {
+        console.error('[Collect] /admin/pointsHistory (diet_mgr) failed:', err);
+      }
+
+      try {
+        const tasks = data['/tabler/tasks'] || {};
+        for (const key in tasks) {
+          if (tasks[key]) {
+            activities.push(normalizeStudy(tasks[key], key));
+            sourceCounts.tasks++;
+          }
+        }
+      } catch (err) {
+        console.error('[Collect] /tabler/tasks failed:', err);
+      }
+
+      console.log('[Collect] Activities by source:', sourceCounts);
+      console.log('[Collect] Total activities:', activities.length);
+      return activities;
+    }
+
+    async function fetchAndAggregate() {
+      console.log('[LifeRPG] fetchAndAggregate called');
+      try {
+        aggregatedStats = { int: 0, vit: 0, chr: 0, spi: 0 };
+        totalXP = 0;
+        recentEvents = [];
+        allEvents = [];
+
+        console.log('[LifeRPG] Fetching all sources...');
+        const data = await fetchAllSources();
+        console.log('[LifeRPG] Fetch complete, collecting activities...');
+        const activities = collectActivities(data);
+
+        activities.forEach(a => {
+          aggregatedStats.int += a.stats.int;
+          aggregatedStats.vit += a.stats.vit;
+          aggregatedStats.chr += a.stats.chr;
+          aggregatedStats.spi += a.stats.spi;
+          totalXP += a.xp;
+        });
+
+        allEvents = activities.sort((a, b) => (b.dateMs || 0) - (a.dateMs || 0));
+        recentEvents = allEvents.slice(0, 5);
+        applyPeriodFilter();
+
+        console.log('[Fetch] Total allEvents:', allEvents.length);
+        console.log('[Fetch] Filtered count:', filteredEvents.length);
+
+        renderAll();
+      } catch (err) {
+        console.error('[Fetch] fetchAndAggregate failed:', err);
+        showError(err.message);
+      }
+    }
+
+    function getClass() {
+      const stats = ['int', 'vit', 'chr', 'spi'];
+      let maxStat = stats[0];
+      let maxVal = aggregatedStats[maxStat];
+
+      for (const s of stats) {
+        if (aggregatedStats[s] > maxVal) {
+          maxVal = aggregatedStats[s];
+          maxStat = s;
+        }
+      }
+
+      // Hero: tied top or all zeros
+      const tops = stats.filter(s => aggregatedStats[s] === maxVal && maxVal > 0);
+      if (tops.length > 1) return 'Hero';
+      if (maxVal === 0) return 'Hero';
+
+      return STAT_TO_CLASS[maxStat];
+    }
+
+    function getLevel() {
+      return Math.floor(totalXP / 100);
+    }
+
+    function getXPInCurrentLevel() {
+      return totalXP % 100;
+    }
+
+    function showError(msg) {
+      document.getElementById('characterCard').innerHTML = `<div class="error-message">${msg}</div>`;
+      document.getElementById('questList').innerHTML = `<li class="error-message">${msg}</li>`;
+      document.getElementById('questHistoryList').innerHTML = `<div class="error-message">${msg}</div>`;
+    }
+
+    function renderCharacter() {
+      const level = getLevel();
+      const cls = getClass();
+
+      const html = `
+        <div class="class-badge">${cls}</div>
+        <div>
+          <div class="level-display">Lv. ${level}</div>
+          <div class="level-label">Total Level</div>
+        </div>
+        <div class="stat-breakdown">
+          ${['int', 'vit', 'chr', 'spi'].map(s => `
+            <div class="stat-row">
+              <span>${STAT_LABELS[s]}</span>
+              <span style="color: var(--neon-cyan);">${aggregatedStats[s]}</span>
+            </div>
+          `).join('')}
+        </div>
+      `;
+
+      document.getElementById('characterCard').innerHTML = html;
+    }
+
+    function renderXP() {
+      const level = getLevel();
+      const xpInLevel = getXPInCurrentLevel();
+      const pct = Math.min(100, (xpInLevel / 100) * 100);
+      const periodLabels = { day: 'Day', week: 'Week', month: 'Month' };
+
+      document.getElementById('levelNum').textContent = level;
+      document.getElementById('xpText').textContent = `${xpInLevel} / 100 XP`;
+      document.getElementById('xpBar').style.width = pct + '%';
+      document.getElementById('periodLabel').textContent = periodLabels[currentPeriod];
+      document.getElementById('periodXP').textContent = `+${periodXP} XP`;
+    }
+
+    function renderQuests() {
+      const ul = document.getElementById('questList');
+
+      if (recentEvents.length === 0) {
+        ul.innerHTML = '<li class="empty-state">No quests completed yet</li>';
+        return;
+      }
+
+      ul.innerHTML = recentEvents.map(ev => {
+        const parts = [];
+        if (ev.stats.int) parts.push(`Int +${ev.stats.int}`);
+        if (ev.stats.vit) parts.push(`Vit +${ev.stats.vit}`);
+        if (ev.stats.chr) parts.push(`Chr +${ev.stats.chr}`);
+        if (ev.stats.spi) parts.push(`Spi +${ev.stats.spi}`);
+        const statsStr = parts.join(', ') || '+0';
+        return `
+          <li class="quest-item">
+            <span class="quest-color" style="background: ${ev.color}; color: ${ev.color};"></span>
+            <span class="quest-title">${ev.title}</span>
+            <span class="quest-stats">${statsStr}</span>
+          </li>
+        `;
+      }).join('');
+    }
+
+    function renderRadar() {
+      const ctx = document.getElementById('radarChart').getContext('2d');
+      const periodLabels = { day: 'Day', week: 'Week', month: 'Month' };
+      const hasData = periodXP > 0;
+
+      document.getElementById('radarPeriodBadge').textContent = `(${periodLabels[currentPeriod]})`;
+      const radarNoDataEl = document.getElementById('radarNoData');
+      radarNoDataEl.style.display = hasData ? 'none' : 'flex';
+      radarNoDataEl.textContent = hasData ? '' : `Checking ${DEBUG_PATHS}... No data found for this period`;
+
+      const maxVal = Math.max(
+        RADAR_MAX_FIXED,
+        aggregatedStats.int,
+        aggregatedStats.vit,
+        aggregatedStats.chr,
+        aggregatedStats.spi,
+        1
+      );
+
+      const data = {
+        labels: ['Intelligence', 'Vitality', 'Charisma', 'Spirit'],
+        datasets: [{
+          label: 'Stats',
+          data: [
+            periodStats.int,
+            periodStats.vit,
+            periodStats.chr,
+            periodStats.spi
+          ],
+          backgroundColor: 'rgba(0, 245, 255, 0.2)',
+          borderColor: '#00f5ff',
+          borderWidth: 2,
+          pointBackgroundColor: '#00f5ff',
+          pointBorderColor: '#00f5ff',
+          pointHoverBackgroundColor: '#ff00aa',
+          pointHoverBorderColor: '#fff'
+        }]
+      };
+
+      const config = {
+        type: 'radar',
+        data,
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          scales: {
+            r: {
+              beginAtZero: true,
+              max: maxVal,
+              grid: {
+                color: 'rgba(0, 245, 255, 0.15)'
+              },
+              angleLines: {
+                color: 'rgba(0, 245, 255, 0.2)'
+              },
+              pointLabels: {
+                color: '#e0e0e8',
+                font: { family: 'Rajdhani', size: 13 }
+              },
+              ticks: {
+                display: false
+              }
+            }
+          },
+          plugins: {
+            legend: { display: false }
+          }
+        }
+      };
+
+      if (radarChart) radarChart.destroy();
+      radarChart = new Chart(ctx, config);
+    }
+
+    function getTrendChartData() {
+      const { start, end } = getPeriodRange();
+      const buckets = [];
+      const dayMs = 24 * 60 * 60 * 1000;
+
+      if (currentPeriod === 'day') {
+        const d = new Date(start);
+        const label = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+        buckets.push({
+          label,
+          int: filteredEvents.reduce((s, e) => s + e.stats.int, 0),
+          vit: filteredEvents.reduce((s, e) => s + e.stats.vit, 0),
+          chr: filteredEvents.reduce((s, e) => s + e.stats.chr, 0),
+          spi: filteredEvents.reduce((s, e) => s + e.stats.spi, 0)
+        });
+      } else if (currentPeriod === 'week') {
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(start);
+          d.setDate(d.getDate() + i);
+          d.setHours(0, 0, 0, 0);
+          const dayStart = d.getTime();
+          const dayEnd = Math.min(dayStart + dayMs - 1, end);
+          const evts = filteredEvents.filter(e => e.dateMs >= dayStart && e.dateMs <= dayEnd);
+          buckets.push({
+            label: d.toLocaleDateString(undefined, { weekday: 'short' }),
+            int: evts.reduce((s, e) => s + e.stats.int, 0),
+            vit: evts.reduce((s, e) => s + e.stats.vit, 0),
+            chr: evts.reduce((s, e) => s + e.stats.chr, 0),
+            spi: evts.reduce((s, e) => s + e.stats.spi, 0)
+          });
+        }
+      } else {
+        const y = currentViewDate.getFullYear();
+        const m = currentViewDate.getMonth();
+        const daysInMonth = new Date(y, m + 1, 0).getDate();
+        for (let day = 1; day <= daysInMonth; day++) {
+          const d = new Date(y, m, day);
+          const dayStart = d.getTime();
+          const dayEnd = Math.min(dayStart + dayMs - 1, end);
+          const evts = filteredEvents.filter(e => e.dateMs >= dayStart && e.dateMs <= dayEnd);
+          buckets.push({
+            label: String(day),
+            int: evts.reduce((s, e) => s + e.stats.int, 0),
+            vit: evts.reduce((s, e) => s + e.stats.vit, 0),
+            chr: evts.reduce((s, e) => s + e.stats.chr, 0),
+            spi: evts.reduce((s, e) => s + e.stats.spi, 0)
+          });
+        }
+      }
+      return buckets;
+    }
+
+    function renderTrend() {
+      const ctx = document.getElementById('trendChart').getContext('2d');
+      const periodLabels = { day: 'Day', week: 'Week', month: 'Month' };
+      const hasData = periodXP > 0;
+
+      document.getElementById('trendPeriodBadge').textContent = `(${periodLabels[currentPeriod]})`;
+      const trendNoDataEl = document.getElementById('trendNoData');
+      trendNoDataEl.style.display = hasData ? 'none' : 'flex';
+      trendNoDataEl.textContent = hasData ? '' : `Checking ${DEBUG_PATHS}... No data found for this period`;
+
+      const buckets = getTrendChartData();
+      const labels = buckets.map(b => b.label);
+
+      const config = {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            { label: 'INT', data: buckets.map(b => b.int), backgroundColor: STAT_COLORS.int, stack: 'xp' },
+            { label: 'VIT', data: buckets.map(b => b.vit), backgroundColor: STAT_COLORS.vit, stack: 'xp' },
+            { label: 'CHR', data: buckets.map(b => b.chr), backgroundColor: STAT_COLORS.chr, stack: 'xp' },
+            { label: 'SPI', data: buckets.map(b => b.spi), backgroundColor: STAT_COLORS.spi, stack: 'xp' }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              grid: { color: 'rgba(0, 245, 255, 0.08)' },
+              ticks: { color: '#8a8a9a', maxRotation: 45 }
+            },
+            y: {
+              stacked: true,
+              beginAtZero: true,
+              grid: { color: 'rgba(0, 245, 255, 0.08)' },
+              ticks: { color: '#8a8a9a' }
+            }
+          },
+          plugins: {
+            legend: {
+              display: true,
+              position: 'top',
+              labels: { color: '#e0e0e8', usePointStyle: true }
+            }
+          }
+        }
+      };
+
+      if (trendChart) trendChart.destroy();
+      trendChart = new Chart(ctx, config);
+    }
+
+    function formatEventDate(dateMs) {
+      if (!dateMs) return '—';
+      const d = new Date(dateMs);
+      if (isNaN(d.getTime())) return '—';
+      return d.toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+
+    function escapeHtml(s) {
+      if (!s) return '';
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    function renderQuestHistory() {
+      const container = document.getElementById('questHistoryList');
+
+      if (filteredEvents.length === 0) {
+        container.innerHTML = `<div class="empty-state">Checking ${DEBUG_PATHS}... No data found for this period</div>`;
+        return;
+      }
+
+      container.innerHTML = filteredEvents.map(ev => {
+        const stats = ev.stats;
+        const statParts = [];
+        if (stats.int) statParts.push(`<span class="quest-history-stat quest-history-stat-int">INT: +${stats.int}</span>`);
+        if (stats.vit) statParts.push(`<span class="quest-history-stat quest-history-stat-vit">VIT: +${stats.vit}</span>`);
+        if (stats.chr) statParts.push(`<span class="quest-history-stat quest-history-stat-chr">CHR: +${stats.chr}</span>`);
+        if (stats.spi) statParts.push(`<span class="quest-history-stat quest-history-stat-spi">SPI: +${stats.spi}</span>`);
+        if (statParts.length === 0) statParts.push('<span class="quest-history-stat" style="color: var(--text-muted);">—</span>');
+
+        const scoreBadge = ev.xp > 0 ? `<span class="quest-history-score">+${ev.xp} XP</span>` : '';
+
+        const reason = stats.reason ? escapeHtml(stats.reason) : (ev.source === 'event' ? 'Manual Entry' : null);
+        const reasonDisplay = stats.reason
+          ? `<i class="fas fa-robot"></i> ${reason}`
+          : (ev.source === 'event' ? `<i class="fas fa-hand-pointer"></i> <span style="color: var(--text-muted);">Manual Entry</span>` : '<span style="color: var(--text-muted);">—</span>');
+
+        const cfg = SOURCE_CONFIG[ev.source] || SOURCE_CONFIG.event;
+        const sourceBadge = `<span class="source-badge ${cfg.badgeClass}">[${cfg.label}]</span>`;
+        return `
+          <article class="quest-history-card">
+            <div class="quest-history-header">
+              ${sourceBadge}
+              <div class="quest-history-icon" style="background: ${ev.color}; color: ${ev.color};"></div>
+              <span class="quest-history-date">${formatEventDate(ev.dateMs)}</span>
+              <span class="quest-history-title">${escapeHtml(ev.title)}</span>
+              ${scoreBadge}
+            </div>
+            <div class="quest-history-stats">
+              ${statParts.join('')}
+            </div>
+            <div class="quest-history-reason">
+              ${reasonDisplay}
+            </div>
+          </article>
+        `;
+      }).join('');
+    }
+
+    function updateNavUI() {
+      document.getElementById('navPeriodLabel').textContent = getPeriodLabelText();
+      const jumpLabels = { day: 'Today', week: 'This Week', month: 'This Month' };
+      document.getElementById('navToday').textContent = jumpLabels[currentPeriod];
+    }
+
+    function renderAll() {
+      updateNavUI();
+      renderCharacter();
+      renderXP();
+      renderQuests();
+      renderRadar();
+      renderTrend();
+      renderQuestHistory();
+    }
+
+    // ——— Period Tabs ———
+    document.getElementById('periodTabs').addEventListener('click', (e) => {
+      const btn = e.target.closest('.period-tab');
+      if (!btn) return;
+      currentPeriod = btn.dataset.period;
+      document.querySelectorAll('.period-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      applyPeriodFilter();
+      renderAll();
+    });
+
+    // ——— Nav Arrows ———
+    document.getElementById('navPrev').addEventListener('click', () => {
+      navigatePrev();
+      applyPeriodFilter();
+      renderAll();
+    });
+
+    document.getElementById('navNext').addEventListener('click', () => {
+      navigateNext();
+      applyPeriodFilter();
+      renderAll();
+    });
+
+    // ——— Jump to Current ———
+    document.getElementById('navToday').addEventListener('click', () => {
+      jumpToCurrent();
+      applyPeriodFilter();
+      renderAll();
+    });
+
+    // ——— Init ———
+    console.log('[LifeRPG] Calling fetchAndAggregate');
+    fetchAndAggregate();
+
+    // Realtime updates (all sources)
+    let refreshTimeout = null;
+    function scheduleRefresh() {
+      if (refreshTimeout) clearTimeout(refreshTimeout);
+      refreshTimeout = setTimeout(() => fetchAndAggregate(), 100);
+    }
+    ['/events', '/shifts', '/tabler/tasks', '/admin/pointsHistory'].forEach(path => {
+      db.ref(path).on('value', scheduleRefresh);
+    });
+    console.log('[LifeRPG] Init complete, realtime listeners attached');
+    } catch (e) {
+      console.error('[LifeRPG] Fatal error:', e);
+      if (typeof document !== 'undefined') {
+        document.body.innerHTML = '<pre style="padding:2rem;color:red;font-family:monospace">[LifeRPG] Error: ' + e.message + '\n\nCheck console for stack.</pre>';
+      }
+    }
+  </script>
+</body>
+</html>
